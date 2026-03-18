@@ -1,0 +1,11 @@
+const express = require('express');
+const router = express.Router();
+const { obtenerProfesionales, crearProfesional, actualizarProfesional, eliminarProfesional } = require('../controllers/profesionalController');
+const { verificarToken, esAdmin } = require('../middlewares/authMiddleware');
+
+router.get('/', verificarToken, obtenerProfesionales);
+router.post('/', verificarToken, esAdmin, crearProfesional);
+router.put('/:id', verificarToken, esAdmin, actualizarProfesional);
+router.delete('/:id', verificarToken, esAdmin, eliminarProfesional);
+
+module.exports = router;
