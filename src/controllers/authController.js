@@ -22,6 +22,7 @@ const login = async (req, res) => {
 
         res.status(200).json({ mensaje: 'Login exitoso', token, usuario: { id: usuario.id, nombre: usuario.nombre, rol_id: usuario.rol_id } });
     } catch (error) {
+        console.error("🔥 Error en Login:", error); // <-- Agrega esta línea
         res.status(500).json({ mensaje: 'Error en el servidor al intentar iniciar sesión' });
     }
 };
