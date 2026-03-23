@@ -1,11 +1,16 @@
 const express = require('express');
 const router = express.Router();
-const { obtenerProfesionales, crearProfesional, actualizarProfesional, eliminarProfesional } = require('../controllers/profesionalController');
-const { verificarToken, esAdmin } = require('../middlewares/authMiddleware');
+const { 
+    obtenerProfesionales, 
+    crearProfesional, 
+    actualizarProfesional, 
+    eliminarProfesional 
+} = require('../controllers/profesionalController');
 
-router.get('/', verificarToken, obtenerProfesionales);
-router.post('/', verificarToken, esAdmin, crearProfesional);
-router.put('/:id', verificarToken, esAdmin, actualizarProfesional);
-router.delete('/:id', verificarToken, esAdmin, eliminarProfesional);
+// Define tus rutas CRUD para los médicos
+router.get('/', obtenerProfesionales);
+router.post('/', crearProfesional);
+router.put('/:id', actualizarProfesional);
+router.delete('/:id', eliminarProfesional);
 
 module.exports = router;
