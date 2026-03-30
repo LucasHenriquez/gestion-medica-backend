@@ -30,8 +30,8 @@ app.get('/', (req, res) => {
   res.json({ mensaje: '¡Servidor de Gestión Médica funcionando al 100%! 🏥' });
 });
 
-/// =================================================================
-// 🔍 BUSCADOR GLOBAL INTELIGENTE (CORREGIDO)
+// =================================================================
+// 🔍 BUSCADOR GLOBAL INTELIGENTE (Adaptado a ofertas_trabajo)
 // =================================================================
 app.get('/api/buscar', async (req, res) => {
   try {
@@ -48,11 +48,11 @@ app.get('/api/buscar', async (req, res) => {
       LIMIT 4
     `, [terminoBusqueda]);
 
-    // 2. Buscar en Turnos
+    // 2. Buscar en Ofertas de Trabajo (Con los nombres correctos de tu BD)
     const turnosResult = await pool.query(`
-      SELECT id, especialidad, fecha, horario, tipo_servicio 
-      FROM turnos 
-      WHERE especialidad ILIKE $1 OR tipo_servicio ILIKE $1
+      SELECT id, especialidad_requerida as especialidad, fecha_turno as fecha, horario, tipo_servicio 
+      FROM ofertas_trabajo 
+      WHERE especialidad_requerida ILIKE $1 OR tipo_servicio ILIKE $1
       LIMIT 4
     `, [terminoBusqueda]);
 
@@ -66,13 +66,37 @@ app.get('/api/buscar', async (req, res) => {
     res.status(500).json({ error: 'Error al buscar en la base de datos' });
   }
 });
+
+// =================================================================
+// 🔄 CAMBIAR ESTADO DE UN TURNO (Funcionalidad Nueva)
+// =================================================================
+app.put('/api/ofertas/:id/estado', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { estado } = req.body; // Ej: 'pendiente', 'asignado', 'finalizado', 'cancelado'
+
+    // Actualizamos la tabla correcta
+    const query = `UPDATE ofertas_trabajo SET estado = $1 WHERE id = $2 RETURNING *`;
+    const resultado = await pool.query(query, [estado, id]);
+
+    if (resultado.rowCount === 0) {
+      return res.status(404).json({ error: 'Turno no encontrado' });
+    }
+
+    res.json({ mensaje: `Estado actualizado a ${estado}`, turno: resultado.rows[0] });
+  } catch (error) {
+    console.error('🚨 Error al actualizar estado:', error.message);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 // =================================================================
 // 🧹 ROBOT DE LIMPIEZA AUTOMÁTICA DE BASE DE DATOS
 // =================================================================
 const limpiarTurnosExpirados = async () => {
   try {
-    // 👇 AHORA BUSCA EN LA TABLA CORRECTA Y COLUMNA CORRECTA 👇
-    const query = `DELETE FROM turnos WHERE fecha < CURRENT_DATE`;
+    // Busca en ofertas_trabajo y usa fecha_turno
+    const query = `DELETE FROM ofertas_trabajo WHERE fecha_turno < CURRENT_DATE`;
     
     const resultado = await pool.query(query);
     
@@ -83,6 +107,7 @@ const limpiarTurnosExpirados = async () => {
     console.error('🚨 Error al limpiar turnos en la BD:', error.message);
   }
 };
+
 // 1. Ejecutar al iniciar el servidor para limpiar la basura de ayer
 limpiarTurnosExpirados();
 
