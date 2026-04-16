@@ -1,3 +1,4 @@
+const transporter = require('../config/mailer');
 const pool = require('../config/db');
 
 // =========================================================
@@ -8,7 +9,7 @@ const pool = require('../config/db');
 const obtenerOfertas = async (req, res) => {
     try {
         const query = `
-            SELECT o.id, o.especialidad_requerida, o.fecha_turno, o.horario, o.valor_turno, 
+            SELECT o.id, o.especialidad_requerida, o.fecha_turno, o.hora_inicio, o.hora_fin, o.valor_turno, 
                    o.tipo_servicio, o.ubicacion_especifica, o.descripcion, o.estado,
                    c.nombre AS centro_medico, c.direccion, c.ciudad
             FROM ofertas_trabajo o
@@ -24,40 +25,99 @@ const obtenerOfertas = async (req, res) => {
     }
 };
 
-// CREAR (POST)
+// CREAR (POST) + ✉️ ENVÍO DE CORREOS
 const crearOferta = async (req, res) => {
-    // 💡 AHORA RECIBIMOS LOS DATOS NUEVOS DESDE REACT
-    const { centro_id, especialidad_requerida, fecha_turno, horario, valor_turno, tipo_servicio, ubicacion_especifica, descripcion } = req.body;
+  try {
+    const { 
+      centro_id, especialidad_requerida, tipo_servicio, ubicacion_especifica, 
+      descripcion, fecha_turno, hora_inicio, hora_fin, valor_turno 
+    } = req.body;
+
+    // 1. Guardar en la Base de Datos
+    const query = `
+      INSERT INTO ofertas_trabajo (
+        centro_id, especialidad_requerida, tipo_servicio, ubicacion_especifica, 
+        descripcion, fecha_turno, hora_inicio, hora_fin, valor_turno
+      ) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *
+    `;
     
+    const values = [
+      centro_id, especialidad_requerida, tipo_servicio, ubicacion_especifica, 
+      descripcion, fecha_turno, hora_inicio, hora_fin, valor_turno
+    ];
+
+    const resultado = await pool.query(query, values);
+    const turnoCreado = resultado.rows[0];
+
+    // ==========================================
+    // ✉️ 2. MAGIA DE NOTIFICACIONES (NODEMAILER)
+    // ==========================================
     try {
-        const query = `
-            INSERT INTO ofertas_trabajo (centro_id, especialidad_requerida, fecha_turno, horario, valor_turno, tipo_servicio, ubicacion_especifica, descripcion, estado) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pendiente') 
-            RETURNING *
-        `;
-        const valores = [centro_id, especialidad_requerida, fecha_turno, horario, valor_turno, tipo_servicio, ubicacion_especifica, descripcion];
-        const nuevaOferta = await pool.query(query, valores);
-        
-        res.status(201).json({ mensaje: 'Turno publicado con éxito 📢', oferta: nuevaOferta.rows[0] });
-    } catch (error) {
-        console.error("Error en crearOferta:", error);
-        res.status(500).json({ mensaje: 'Error al publicar el turno' });
+      // Buscar médicos activos de esta especialidad que tengan email
+      const medicosResult = await pool.query(
+        `SELECT email, nombres, apellidos FROM profesionales 
+         WHERE especialidad = $1 AND estado = 'activo' AND email IS NOT NULL`,
+        [especialidad_requerida]
+      );
+
+      const medicos = medicosResult.rows;
+
+      if (medicos.length > 0) {
+        const listaCorreos = medicos.map(m => m.email).join(', '); 
+
+        const mailOptions = {
+          from: `"ShiftMed Hub" <${process.env.EMAIL_USER}>`,
+          to: listaCorreos, 
+          subject: `🚨 ¡Nuevo Turno de ${especialidad_requerida}! - ShiftMed`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 10px;">
+              <h2 style="color: #10b981; text-align: center;">Nuevas Oportunidades de Turno</h2>
+              <p>Hola equipo médico,</p>
+              <p>Se ha liberado un nuevo turno que coincide con su especialidad (<strong>${especialidad_requerida}</strong>). Aquí están los detalles:</p>
+              
+              <ul style="background-color: #f8fafc; padding: 15px; border-radius: 5px; list-style: none;">
+                <li style="margin-bottom: 10px;">📅 <strong>Fecha:</strong> ${fecha_turno.split('T')[0]}</li>
+                <li style="margin-bottom: 10px;">⏰ <strong>Horario:</strong> ${hora_inicio} a ${hora_fin} hrs</li>
+                <li style="margin-bottom: 10px;">🏥 <strong>Servicio:</strong> ${tipo_servicio} - ${ubicacion_especifica}</li>
+                <li style="margin-bottom: 10px;">💰 <strong>Valor:</strong> $ ${valor_turno} CLP</li>
+              </ul>
+
+              <p>Para aceptar este turno, inicie sesión en su portal de ShiftMed o contáctese con la administración.</p>
+              <p style="font-size: 12px; color: #94a3b8; text-align: center; margin-top: 20px;">Este es un mensaje automático de la plataforma ShiftMed.</p>
+            </div>
+          `
+        };
+
+        transporter.sendMail(mailOptions);
+        console.log(`✉️ Correos enviados a: ${listaCorreos}`);
+      }
+    } catch (emailError) {
+      console.error("🚨 Error al intentar enviar los correos:", emailError);
     }
+    // ==========================================
+
+    res.status(201).json(turnoCreado);
+
+  } catch (error) {
+    console.error('🚨 Error al crear turno:', error);
+    res.status(500).json({ error: 'Error al guardar el turno en la base de datos' });
+  }
 };
 
-// ACTUALIZAR (PUT)
+// ACTUALIZAR (PUT) - ¡Arreglado con hora_inicio y hora_fin!
 const actualizarOferta = async (req, res) => {
     const { id } = req.params;
-    const { especialidad_requerida, fecha_turno, horario, valor_turno, tipo_servicio, ubicacion_especifica, descripcion } = req.body;
+    const { especialidad_requerida, fecha_turno, hora_inicio, hora_fin, valor_turno, tipo_servicio, ubicacion_especifica, descripcion } = req.body;
 
     try {
         const query = `
             UPDATE ofertas_trabajo 
-            SET especialidad_requerida = $1, fecha_turno = $2, horario = $3, valor_turno = $4, tipo_servicio = $5, ubicacion_especifica = $6, descripcion = $7
-            WHERE id = $8 
+            SET especialidad_requerida = $1, fecha_turno = $2, hora_inicio = $3, hora_fin = $4, valor_turno = $5, tipo_servicio = $6, ubicacion_especifica = $7, descripcion = $8
+            WHERE id = $9 
             RETURNING *
         `;
-        const valores = [especialidad_requerida, fecha_turno, horario, valor_turno, tipo_servicio, ubicacion_especifica, descripcion, id];
+        const valores = [especialidad_requerida, fecha_turno, hora_inicio, hora_fin, valor_turno, tipo_servicio, ubicacion_especifica, descripcion, id];
         const ofertaActualizada = await pool.query(query, valores);
 
         if (ofertaActualizada.rows.length === 0) {
@@ -91,6 +151,7 @@ const eliminarOferta = async (req, res) => {
         res.status(500).json({ mensaje: 'Error al cancelar el turno' });
     }
 };
+
 // ==========================================
 // ASIGNAR TURNO MANUALMENTE (ADMIN)
 // ==========================================
@@ -153,7 +214,7 @@ const obtenerOfertasParaProfesional = async (req, res) => {
 
         if (lat && lng) {
             queryOfertas = `
-                SELECT o.id, o.descripcion, o.fecha_turno, c.nombre AS clinica, c.direccion,
+                SELECT o.id, o.descripcion, o.fecha_turno, o.hora_inicio, o.hora_fin, c.nombre AS clinica, c.direccion,
                 ROUND((6371 * acos(cos(radians($2)) * cos(radians(c.latitud)) * cos(radians(c.longitud) - radians($3)) + sin(radians($2)) * sin(radians(c.latitud))))::numeric, 2) AS distancia_km
                 FROM ofertas_trabajo o
                 JOIN centros_medicos c ON o.centro_id = c.id
@@ -163,7 +224,7 @@ const obtenerOfertasParaProfesional = async (req, res) => {
             valores = [miEspecialidad, lat, lng];
         } else {
             queryOfertas = `
-                SELECT o.id, o.descripcion, o.fecha_turno, c.nombre AS clinica, c.direccion
+                SELECT o.id, o.descripcion, o.fecha_turno, o.hora_inicio, o.hora_fin, c.nombre AS clinica, c.direccion
                 FROM ofertas_trabajo o
                 JOIN centros_medicos c ON o.centro_id = c.id
                 WHERE (o.estado = 'abierta' OR o.estado = 'pendiente') AND o.especialidad_requerida = $1
@@ -183,7 +244,7 @@ const obtenerMisTurnos = async (req, res) => {
     const { profesional_id } = req.params;
     try {
         const query = `
-            SELECT o.id, o.descripcion, o.fecha_turno, c.nombre AS clinica, c.direccion, c.ciudad
+            SELECT o.id, o.descripcion, o.fecha_turno, o.hora_inicio, o.hora_fin, c.nombre AS clinica, c.direccion, c.ciudad
             FROM ofertas_trabajo o
             JOIN centros_medicos c ON o.centro_id = c.id
             WHERE o.profesional_asignado_id = $1 AND o.estado = 'asignada'
@@ -196,7 +257,6 @@ const obtenerMisTurnos = async (req, res) => {
     }
 };
 
-// Exportamos TODAS las funciones
 module.exports = { 
     obtenerOfertas, 
     crearOferta, 
